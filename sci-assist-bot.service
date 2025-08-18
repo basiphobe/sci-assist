@@ -1,0 +1,31 @@
+[Unit]
+Description=SCI-Assist Discord Bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+WorkingDirectory=/opt/sci-assist
+Environment=PATH=/opt/sci-assist/.venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/sci-assist/.venv/bin/discord-llm-bot
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Shutdown timeouts (reduce restart delay)
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+
+# Security settings
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/sci-assist
+
+[Install]
+WantedBy=multi-user.target

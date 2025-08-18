@@ -1,0 +1,20 @@
+{
+  "report_date": "2025-08-18T16:17:08.701715",
+  "overall_stats": {
+    "total_messages": 177,
+    "oldest_message": "2025-08-12 23:28:44.810365",
+    "newest_message": "2025-08-18 20:15:49.013931",
+    "unique_users": 9,
+    "total_conversations": 14
+  },
+  "age_distribution": {
+    "last_24h": 35,
+    "last_week": 142
+  },
+  "recommendations": [
+    "Consider implementing 30-day retention for most conversations",
+    "Keep anonymized training data separately from operational data",
+    "Implement user consent for data retention beyond operational needs",
+    "Regular automated cleanup of old conversations"
+  ]
+}

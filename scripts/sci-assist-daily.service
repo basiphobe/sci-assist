@@ -1,0 +1,13 @@
+[Unit]
+Description=SCI Assist Bot Daily Message
+Requires=sci-assist-bot.service
+
+[Service]
+Type=oneshot
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+WorkingDirectory=/opt/sci-assist
+EnvironmentFile=/opt/sci-assist/.env
+ExecStart=/opt/sci-assist/scripts/daily_message.fish post
+StandardOutput=journal
+StandardError=journal

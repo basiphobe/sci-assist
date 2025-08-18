@@ -1,0 +1,3 @@
+[submodule "ajsgptrag"]
+	path = ajsgptrag
+	url = https://github.com/basiphobe/ajsgptrag.git

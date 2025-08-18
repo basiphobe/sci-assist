@@ -1,0 +1,11 @@
+[Unit]
+Description=SCI Assist Bot Daily Message Timer
+Requires=sci-assist-daily.service
+
+[Timer]
+# Daily at 9:00 AM
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

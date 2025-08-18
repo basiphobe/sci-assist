@@ -1,0 +1,22 @@
+[Unit]
+Description=SCI Assist Bot Watchdog
+After=sci-assist-bot.service
+Wants=sci-assist-bot.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/sci-assist/scripts/watchdog.fish run
+Restart=always
+RestartSec=60
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log
+
+[Install]
+WantedBy=multi-user.target
