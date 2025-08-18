@@ -1,6 +1,15 @@
 # SCI-Assist Bot
 
-> **🤖 AI-Generated Project**: This entire repository was created by AI (GitHub Copilot) through conversational guidance. The code, documentation, privacy systems, and architecture were all generated through AI chat interactions with minimal human intervention - demonstrating AI's capability to build complete, production-ready applications.
+---
+## 🤖 **100% AI-GENERATED PROJECT** 🤖
+**This entire repository was created by AI (GitHub Copilot) through conversational guidance.**
+
+🔥 **NO HUMAN CODING** - Every line of code, documentation, privacy systems, and architecture was generated through AI chat interactions  
+🚀 **PRODUCTION-READY** - Complete application built purely through conversational AI  
+⚡ **MINIMAL HUMAN INPUT** - Only high-level guidance and direction provided  
+
+**This demonstrates AI's capability to autonomously build complete, enterprise-grade applications!**
+---
 
 A specialized Discord bot designed to assist the spinal cord injury (SCI) community. Built with privacy-first principles and powered by self-hosted Large Language Models (LLMs), providing knowledgeable, empathetic support while maintaining strict data privacy controls.
 
