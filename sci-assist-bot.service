@@ -5,8 +5,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-User=YOUR_USERNAME
-Group=YOUR_USERNAME
+User=aaron
+Group=aaron
 WorkingDirectory=/opt/sci-assist
 Environment=PATH=/opt/sci-assist/.venv/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/sci-assist/.venv/bin/discord-llm-bot
