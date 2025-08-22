@@ -136,9 +136,9 @@ class DailyMessageGenerator:
         # Get recent messages to avoid repetition
         recent_messages = self._get_recent_messages()
         
-                # Define prompts for different categories with SCI-appropriate content
+        # Define prompts for different categories with SCI-appropriate content
         category_prompts = {
-            "fact": """Create a discussion starter about an interesting SCI-related fact. Focus on topics like: spinal cord anatomy, recovery statistics, adaptive equipment innovations, research breakthroughs, or historical SCI facts. Ask the community to share their thoughts or experiences related to it. Keep it under 150 characters.""",
+            "fact": """Create a discussion starter about an interesting SCI-related fact. Focus on topics like: spinal cord anatomy basics, injury level statistics, adaptive equipment innovations, accessibility history, or SCI community achievements. IMPORTANT: Only use well-established, medically accurate facts. Do NOT mention regeneration, cure research, or experimental treatments. Ask the community to share their thoughts or experiences related to it. Keep it under 150 characters.""",
             
             "tip": """Ask the community to share practical tips about SCI challenges. Focus on topics like: pressure sore prevention, transfer techniques, wheelchair maintenance, bathroom accessibility, cooking adaptations, exercise routines, or pain management. Keep it under 150 characters.""",
             
@@ -164,6 +164,8 @@ class DailyMessageGenerator:
         daily_system_prompt = """You are a bot that facilitates discussions in a Discord chat for people with spinal cord injuries. Create discussion starters under 150 characters that invite community members to share their experiences with each other. 
 
 You are NOT a person with SCI - you are a bot helping people connect. Ask questions that let community members share their knowledge and experiences. Do not use hashtags. Write from the perspective of a helpful facilitator, not as someone with personal SCI experience.
+
+CRITICAL MEDICAL ACCURACY: Never mention spinal cord regeneration, cures, or experimental treatments. The spinal cord does not regenerate. Focus only on established, accurate medical information and practical topics.
 
 IMPORTANT: Create FRESH, UNIQUE topics. Avoid repeating similar themes or questions from recent messages."""
 
