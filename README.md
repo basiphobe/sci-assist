@@ -266,6 +266,25 @@ docker run -d --name discord-bot --env-file .env discord-llm-bot
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
+## Changelog
+
+### November 24, 2025
+- **Security Enhancement**: Modified watchdog alert system to prevent URL auto-expansion spam
+  - Removed raw log excerpts from Discord webhook alerts
+  - Now shows error counts instead of log content to prevent sensitive data exposure
+  - Prevents Discord invite URLs and other links from being auto-expanded into preview cards
+
+### September 27, 2025
+- **Fix**: Increased LLM timeout from 60s to 180s to resolve daily message generation failures
+- **Fix**: Resolved RAG system initialization timeouts
+
+### August 20, 2025
+- **Feature**: Implemented comprehensive privacy system with GDPR compliance
+- **Feature**: Added user consent management and data retention controls
+- **Fix**: Corrected environment variable naming (DISCORD_TOKEN, CONVERSATION_* prefixes)
+- **Fix**: Configured daily message channel ID
+- **Enhancement**: Improved medical accuracy in daily messages
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
