@@ -268,6 +268,14 @@ docker run -d --name discord-bot --env-file .env discord-llm-bot
 
 ## Changelog
 
+### November 29, 2025
+- **CRITICAL SECURITY FIX**: Removed exposed webhook URL from repository
+  - Moved `WATCHDOG_DISCORD_WEBHOOK_URL` to `.env` file (gitignored)
+  - Rewrote entire git history to remove hardcoded webhook URL
+  - Old webhook was compromised and used to send spam/malicious messages
+  - New webhook created and securely configured
+  - **Action Required**: If you forked this repo before Nov 29, 2025, you may have the exposed webhook URL in your history
+
 ### November 24, 2025
 - **Security Enhancement**: Modified watchdog alert system to prevent URL auto-expansion spam
   - Removed raw log excerpts from Discord webhook alerts
