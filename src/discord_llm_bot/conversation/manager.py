@@ -232,8 +232,13 @@ class ConversationManager:
                 user_id = conversation.user_id
             
             # Check privacy consent for user messages
-            if role == "user" and not self.privacy_manager.should_store_message(user_id):
-                self.logger.info(f"Skipping message storage for user {user_id} - no consent")
+            # For shared context, check the actual Discord user's consent
+            # For private context, discord_user_id will match user_id
+            discord_user_id = extra_data.get("discord_user_id") if extra_data else None
+            privacy_check_user_id = discord_user_id if discord_user_id else user_id
+            
+            if role == "user" and not self.privacy_manager.should_store_message(privacy_check_user_id):
+                self.logger.info(f"Skipping message storage for user {privacy_check_user_id} - no consent")
                 # Return a mock message that won't be persisted
                 from datetime import datetime
                 return Message(
