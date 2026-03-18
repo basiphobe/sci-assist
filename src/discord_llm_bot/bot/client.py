@@ -367,7 +367,7 @@ class DiscordLLMBot(commands.Bot):
                     "discord_message_id": message.id,
                     "discord_user_id": message.author.id,
                     "discord_username": str(message.author),
-                    "discord_display_name": f"@{message.author.display_name}",
+                    "discord_display_name": f"<@{message.author.id}>",
                     "stored_for_context": True,  # Flag to indicate this was stored for context only
                 }
             )
@@ -400,7 +400,7 @@ class DiscordLLMBot(commands.Bot):
                 system_prompt = self.conversation_manager.default_system_prompt
                 
                 # Create a temporary conversation context with just this message
-                temp_context = f"Current user: @{message.author.display_name}\n{message.author.display_name}: {message.content}"
+                temp_context = f"Current user: <@{message.author.id}>\n{message.author.display_name}: {message.content}"
                 
                 # Generate response
                 response_content = await self.conversation_manager.llm_client.generate_response(
@@ -443,14 +443,14 @@ class DiscordLLMBot(commands.Bot):
                     "discord_message_id": message.id,
                     "discord_user_id": message.author.id,
                     "discord_username": str(message.author),
-                    "discord_display_name": f"@{message.author.display_name}",
+                    "discord_display_name": f"<@{message.author.id}>",
                 }
             )
 
             # Generate response from LLM
             response_content = await self.conversation_manager.generate_response(
                 conversation_id=conversation_id,
-                current_user_name=f"@{message.author.display_name}"
+                current_user_name=f"<@{message.author.id}>"
             )
             
             # Send response to Discord
