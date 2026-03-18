@@ -247,6 +247,7 @@ class AppConfig(BaseSettings):
         # Load from .env file if present
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Ignore extra fields like WATCHDOG_DISCORD_WEBHOOK_URL
         
     def __init__(self, **kwargs):
         """Initialize configuration with sub-configs."""
