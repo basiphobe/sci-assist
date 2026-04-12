@@ -297,8 +297,8 @@ class DiscordLLMBot(commands.Bot):
         if isinstance(message.channel, discord.DMChannel):
             return True
         
-        # Respond if bot is mentioned
-        if self.user and self.user.mentioned_in(message):
+        # Respond if bot is directly mentioned (not @everyone/@here)
+        if self.user and self.user in message.mentions:
             return True
         
         # Respond if replying to one of the bot's messages
