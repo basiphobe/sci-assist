@@ -26,6 +26,28 @@ function get_python_command
     end
 end
 
+function get_daily_category
+    # Auto-select category based on day of week
+    set -l day_of_week (date +%u)  # 1=Monday, 7=Sunday
+
+    switch $day_of_week
+        case 1  # Monday - motivational tip
+            echo "motivation"
+        case 2  # Tuesday - practical tip
+            echo "tip"
+        case 3  # Wednesday - tech spotlight
+            echo "tech"
+        case 4  # Thursday - community poll
+            echo "community"
+        case 5  # Friday - wellness tip
+            echo "wellness"
+        case 6  # Saturday - fun fact
+            echo "fact"
+        case 7  # Sunday - open discussion
+            echo "random"
+    end
+end
+
 function post_daily_message
     set -l category "$argv[1]"
     set -l dry_run false
@@ -80,7 +102,8 @@ function show_help
     echo "If the bot crashes or is down, no messages will be posted."
     echo ""
     echo "Usage:"
-    echo "  $argv[0] <category> [options]"
+    echo "  $argv[0] post [options]          # Auto-select category by day of week"
+    echo "  $argv[0] <category> [options]    # Use a specific category"
     echo ""
     echo "Categories:"
     for category in $CATEGORIES
@@ -108,14 +131,25 @@ if test (count $argv) -eq 0
     exit 1
 end
 
-set -l category "$argv[1]"
+set -l command "$argv[1]"
 
 # Handle help requests
-switch "$category"
+switch "$command"
     case "help" "--help" "-h"
         show_help
         exit 0
 end
+
+# Handle "post" command - auto-select category by day of week
+if test "$command" = "post"
+    set -l category (get_daily_category)
+    log_message "Auto-selected category for today: $category"
+    post_daily_message $category $argv[2..]
+    exit $status
+end
+
+# Otherwise treat first arg as explicit category
+set -l category "$command"
 
 # Validate category
 set -l valid_category false

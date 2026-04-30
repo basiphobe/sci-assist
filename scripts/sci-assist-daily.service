@@ -8,6 +8,6 @@ User=aaron
 Group=aaron
 WorkingDirectory=/opt/sci-assist
 EnvironmentFile=/opt/sci-assist/.env
-ExecStart=/opt/sci-assist/scripts/daily_message.fish post
+ExecStart=/opt/sci-assist/scripts/daily_message_v2.fish post
 StandardOutput=journal
 StandardError=journal

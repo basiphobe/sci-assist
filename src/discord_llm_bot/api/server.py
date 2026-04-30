@@ -7,11 +7,13 @@ through obscurity on localhost only.
 """
 
 import asyncio
+from datetime import timedelta
 from typing import Optional, Dict, Any, TYPE_CHECKING
 import json
 import secrets
 from pathlib import Path
 
+import discord
 from aiohttp import web, ClientSession
 from aiohttp.web import Request, Response
 import structlog
@@ -150,7 +152,7 @@ class InternalAPIServer:
         )
         
     async def _post_daily_message(self, request: Request) -> Response:
-        """Post a daily message through the bot."""
+        """Post a daily message (text or poll) through the bot."""
         if not self._check_auth(request):
             return Response(status=401, text='Unauthorized')
             
@@ -160,33 +162,53 @@ class InternalAPIServer:
         try:
             # Parse request body
             body = await request.json()
-            message_content = body.get('content')
+            msg_format = body.get('format', 'text')
             channel_id = body.get('channel_id')
             
-            if not message_content or not channel_id:
-                return Response(status=400, text='Missing content or channel_id')
+            if not channel_id:
+                return Response(status=400, text='Missing channel_id')
                 
             # Get the channel
             channel = self.bot.get_channel(int(channel_id))
             if not channel:
                 return Response(status=404, text='Channel not found')
-                
-            # Send the message through the bot
-            message = await channel.send(message_content)
             
-            # Store in conversation context (let the bot's normal message handler do this)
-            # The on_message event will automatically handle storing this message
+            if msg_format == 'poll':
+                # Send a native Discord poll
+                question = body.get('question')
+                options = body.get('options')
+                
+                if not question or not options or not isinstance(options, list) or len(options) < 2:
+                    return Response(status=400, text='Poll requires question and 2+ options')
+                
+                poll = discord.Poll(
+                    question=question[:300],
+                    duration=timedelta(hours=24),
+                )
+                for option in options[:10]:  # Discord max 10 answers
+                    poll.add_answer(text=str(option)[:55])
+                
+                message = await channel.send(poll=poll)
+            else:
+                # Send a plain text message
+                message_content = body.get('content')
+                if not message_content:
+                    return Response(status=400, text='Missing content')
+                    
+                message = await channel.send(message_content)
             
             response_data = {
                 'success': True,
                 'message_id': message.id,
                 'channel_id': channel.id,
+                'format': msg_format,
                 'timestamp': message.created_at.isoformat(),
             }
             
             self.logger.info("Daily message posted successfully",
                            message_id=message.id,
-                           channel_id=channel.id)
+                           channel_id=channel.id,
+                           format=msg_format)
             
             return Response(
                 text=json.dumps(response_data, indent=2),
@@ -210,30 +232,39 @@ class InternalAPIServer:
         try:
             # Parse request body
             body = await request.json()
-            message_content = body.get('content')
+            msg_format = body.get('format', 'text')
             channel_id = body.get('channel_id')
             
-            if not message_content or not channel_id:
-                return Response(status=400, text='Missing content or channel_id')
+            if not channel_id:
+                return Response(status=400, text='Missing channel_id')
                 
             # Get the channel (just to verify it exists)
             channel = self.bot.get_channel(int(channel_id))
             if not channel:
                 return Response(status=404, text='Channel not found')
-                
-            # Simulate posting (don't actually send)
+            
+            # Build response based on format
             response_data = {
                 'success': True,
                 'test_mode': True,
-                'message_content': message_content,
+                'format': msg_format,
                 'channel_id': int(channel_id),
                 'channel_name': getattr(channel, 'name', 'Unknown'),
                 'would_post': True,
             }
             
+            if msg_format == 'poll':
+                response_data['question'] = body.get('question', '')
+                response_data['options'] = body.get('options', [])
+                preview = f"[POLL] {body.get('question', '')}"
+            else:
+                response_data['message_content'] = body.get('content', '')
+                preview = body.get('content', '')
+                
             self.logger.info("TEST: Daily message would be posted",
                            channel_id=channel_id,
-                           message_preview=message_content[:50] + "...")
+                           format=msg_format,
+                           message_preview=preview[:50] + "...")
             
             return Response(
                 text=json.dumps(response_data, indent=2),
