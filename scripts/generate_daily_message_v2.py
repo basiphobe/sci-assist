@@ -18,10 +18,19 @@ from datetime import datetime, timedelta
 # Add the src directory to Python path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+# Add the RAG system to the Python path
+RAG_SYSTEM_PATH = Path(__file__).parent.parent / "ajsgptrag"
+sys.path.insert(0, str(RAG_SYSTEM_PATH))
+
 from discord_llm_bot.config import load_config
 from discord_llm_bot.llm.client import LLMClient
 from discord_llm_bot.llm.models import ChatMessage, ChatRequest, MessageRole
 from discord_llm_bot.utils.logging import setup_logging, get_logger
+
+try:
+    from src.rag_system import WikipediaRAG
+except ImportError:
+    WikipediaRAG = None
 
 
 class BotMediatedDailyMessageGenerator:
@@ -31,6 +40,7 @@ class BotMediatedDailyMessageGenerator:
         """Initialize the generator."""
         self.config = None
         self.llm_client = None
+        self.rag_system = None
         self.logger = None
         self.bot_api_key = None
         self.bot_api_port = 8765
@@ -47,6 +57,20 @@ class BotMediatedDailyMessageGenerator:
         
         # Create LLM client for message generation only
         self.llm_client = LLMClient(self.config.llm)
+        
+        # Initialize RAG system for varied content retrieval
+        if WikipediaRAG is not None:
+            try:
+                import os
+                os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+                os.environ['RAG_DEVICE'] = 'cpu'
+                self.rag_system = WikipediaRAG()
+                self.logger.info("RAG system initialized for daily messages")
+            except Exception as e:
+                self.logger.warning(f"RAG system unavailable for daily messages: {e}")
+                self.rag_system = None
+        else:
+            self.logger.info("RAG system not importable, generating without RAG context")
         
         # Get the bot's API key from the health check endpoint
         await self._get_bot_api_key()
@@ -87,7 +111,11 @@ class BotMediatedDailyMessageGenerator:
             return False
     
     def _get_recent_messages(self) -> List[str]:
-        """Get recent daily messages to avoid repetition."""
+        """Get recent daily messages to avoid repetition.
+        
+        Returns ALL messages from the history file (up to 30 entries) to
+        give the LLM the widest possible view of what's already been posted.
+        """
         history_file = Path(__file__).parent / "daily_message_history.json"
         
         if not history_file.exists():
@@ -97,17 +125,179 @@ class BotMediatedDailyMessageGenerator:
             with open(history_file, 'r') as f:
                 history = json.load(f)
             
-            # Get messages from last 7 days
-            cutoff_date = (datetime.now() - timedelta(days=7)).isoformat()
-            recent_messages = [
-                entry['message'] for entry in history 
-                if entry.get('date', '') > cutoff_date
-            ]
-            
-            return recent_messages[-5:]  # Last 5 messages max
+            # Return all messages in history (file already capped at 30 entries)
+            return [entry['message'] for entry in history if entry.get('message')]
         except (json.JSONDecodeError, KeyError):
             return []
     
+    def _get_rag_context(self, category: str) -> Optional[str]:
+        """
+        Query the RAG system for relevant content to seed message generation.
+        
+        Uses category-specific search queries to retrieve varied Wikipedia
+        content about SCI, accessibility, and assistive technology.
+        
+        Returns:
+            Formatted context string from RAG, or None if unavailable.
+        """
+        if self.rag_system is None:
+            return None
+        
+        import random
+        
+        # Category-specific RAG queries to retrieve varied, relevant content
+        rag_queries = {
+            "fact": [
+                "spinal cord injury anatomy and physiology",
+                "history of wheelchair development and accessibility",
+                "spinal cord injury statistics and epidemiology",
+                "Americans with Disabilities Act accessibility milestones",
+                "Paralympic sports history and achievements",
+                "assistive technology history and development",
+                "spinal cord injury levels and classification",
+                "accessibility standards and universal design",
+            ],
+            "tip": [
+                "pressure ulcer prevention spinal cord injury",
+                "wheelchair transfer techniques safety",
+                "wheelchair maintenance and repair tips",
+                "accessible bathroom modifications",
+                "adaptive cooking tools and techniques for disability",
+                "exercise and fitness for wheelchair users",
+                "autonomic dysreflexia management spinal cord injury",
+                "bladder management spinal cord injury",
+                "adaptive driving controls for disability",
+            ],
+            "motivation": [
+                "disability rights movement achievements",
+                "famous people with spinal cord injuries accomplishments",
+                "adaptive sports achievements world records",
+                "disability advocacy success stories",
+                "independent living movement disability",
+            ],
+            "tech": [
+                "assistive technology for spinal cord injury",
+                "smart home accessibility devices wheelchair users",
+                "voice control technology disability accessibility",
+                "wheelchair power assist technology innovations",
+                "eye tracking technology computer access disability",
+                "adaptive gaming controllers disability",
+                "environmental control units disability",
+                "augmentative alternative communication devices",
+                "robotic arm wheelchair mounted assistive",
+                "accessible smartphone apps disability",
+                "standing wheelchair technology",
+                "pressure mapping wheelchair cushion technology",
+            ],
+            "community": [
+                "spinal cord injury peer support groups",
+                "wheelchair accessible travel tips spinal cord injury",
+                "workplace accommodations spinal cord injury wheelchair",
+                "adaptive sports spinal cord injury recreation",
+                "spinal cord injury caregiver challenges",
+                "wheelchair accessibility public transportation",
+            ],
+            "wellness": [
+                "mental health spinal cord injury coping strategies",
+                "sleep hygiene wheelchair users",
+                "nutrition spinal cord injury health",
+                "mindfulness meditation chronic pain disability",
+                "peer support spinal cord injury mental health",
+                "secondary health conditions spinal cord injury prevention",
+            ],
+            "random": [
+                "wheelchair accessible travel spinal cord injury",
+                "adaptive sports spinal cord injury athletes",
+                "home modifications wheelchair accessibility ramps",
+                "dating relationships spinal cord injury",
+                "workplace accommodations wheelchair users",
+                "outdoor recreation wheelchair accessible trails",
+                "spinal cord injury daily living challenges solutions",
+            ],
+        }
+        
+        queries = rag_queries.get(category, rag_queries["random"])
+        query = random.choice(queries)
+        
+        try:
+            self.logger.info(f"Querying RAG for category '{category}': {query}")
+            chunks, scores = self.rag_system.retrieve_context(query)
+            
+            if not chunks:
+                self.logger.info("RAG returned no chunks")
+                return None
+            
+            # Format the top chunks as context for the LLM
+            context_parts = []
+            for chunk, score in zip(chunks[:3], scores[:3]):  # Top 3 chunks
+                if hasattr(chunk, 'text') and chunk.text:
+                    context_parts.append(chunk.text.strip())
+            
+            if not context_parts:
+                return None
+            
+            context = "\n\n".join(context_parts)
+            # Limit context length to avoid overwhelming the prompt
+            if len(context) > 2000:
+                context = context[:2000]
+            
+            self.logger.info(f"RAG provided {len(context_parts)} chunks ({len(context)} chars)")
+            return context
+            
+        except Exception as e:
+            self.logger.warning(f"RAG query failed: {e}")
+            return None
+
+    def _is_repetitive(self, message: str, recent_messages: List[str]) -> bool:
+        """
+        Check if a generated message is too similar to previously posted messages.
+        
+        Uses word-overlap ratio and key-phrase matching to detect repeats.
+        """
+        if not recent_messages:
+            return False
+        
+        message_lower = message.lower()
+        # Extract significant words (drop short/common words)
+        stopwords = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would',
+                     'could', 'should', 'may', 'might', 'can', 'to', 'of', 'in',
+                     'for', 'on', 'with', 'at', 'by', 'from', 'or', 'and', 'not',
+                     'but', 'if', 'it', 'its', 'this', 'that', 'your', 'you',
+                     'what', 'which', 'who', 'how', 'after', 'since', 'about'}
+        message_words = {w for w in message_lower.split() if w not in stopwords and len(w) > 2}
+        
+        # Extract key phrases (2-grams) for catching thematic repetition
+        message_bigrams = set()
+        words_list = [w for w in message_lower.split() if w not in stopwords and len(w) > 2]
+        for i in range(len(words_list) - 1):
+            message_bigrams.add(f"{words_list[i]} {words_list[i+1]}")
+        
+        for prev in recent_messages:
+            prev_words = {w for w in prev.lower().split() if w not in stopwords and len(w) > 2}
+            
+            if not message_words or not prev_words:
+                continue
+            # Jaccard similarity on significant words only
+            overlap = message_words & prev_words
+            similarity = len(overlap) / len(message_words | prev_words)
+            if similarity > 0.30:
+                self.logger.info(f"Repetition detected (word overlap {similarity:.0%}): {prev[:60]}...")
+                return True
+            
+            # Also check bigram overlap for thematic repetition
+            prev_words_list = [w for w in prev.lower().split() if w not in stopwords and len(w) > 2]
+            prev_bigrams = set()
+            for i in range(len(prev_words_list) - 1):
+                prev_bigrams.add(f"{prev_words_list[i]} {prev_words_list[i+1]}")
+            if message_bigrams and prev_bigrams:
+                bigram_overlap = message_bigrams & prev_bigrams
+                if len(bigram_overlap) >= 3:
+                    self.logger.info(f"Repetition detected (bigram overlap {bigram_overlap}): {prev[:60]}...")
+                    return True
+        
+        return False
+
     def _save_message_to_history(self, message: str, category: str):
         """Save generated message to history."""
         history_file = Path(__file__).parent / "daily_message_history.json"
@@ -128,8 +318,8 @@ class BotMediatedDailyMessageGenerator:
             'message': message
         })
         
-        # Keep only last 30 entries
-        history = history[-30:]
+        # Keep only last 60 entries
+        history = history[-60:]
         
         # Save updated history
         try:
@@ -139,11 +329,11 @@ class BotMediatedDailyMessageGenerator:
             # If we can't save history, continue anyway
             pass
 
-    def _parse_poll_response(self, raw_response: str, category: str) -> dict:
+    def _parse_poll_response(self, raw_response: str, category: str) -> Optional[dict]:
         """
         Parse a poll JSON response from the LLM.
         
-        Falls back to text format if JSON parsing fails.
+        Returns None if parsing fails (caller should retry or fall back).
         """
         import re
         
@@ -163,8 +353,6 @@ class BotMediatedDailyMessageGenerator:
                     options = [opt[:55] for opt in options if isinstance(opt, str) and opt.strip()]
                     
                     if len(options) >= 2:
-                        self._save_message_to_history(question, category)
-                        self.logger.info(f"Generated poll: {question} [{len(options)} options]")
                         return {
                             "format": "poll",
                             "question": question,
@@ -174,24 +362,9 @@ class BotMediatedDailyMessageGenerator:
             except (json.JSONDecodeError, KeyError, TypeError):
                 pass
         
-        # Fallback: treat as plain text if poll parsing failed
-        self.logger.warning(f"Poll JSON parsing failed, falling back to text format. Raw: {raw_response[:100]}")
-        
-        # Clean up the raw response as a text message
-        message = re.sub(r'#\w+', '', raw_response)
-        message = re.sub(r'\s+', ' ', message)
-        if message.startswith('"') and message.endswith('"'):
-            message = message[1:-1]
-        elif message.startswith("'") and message.endswith("'"):
-            message = message[1:-1]
-        message = message.strip()
-        
-        self._save_message_to_history(message, category)
-        return {
-            "format": "text",
-            "content": message,
-            "category": category,
-        }
+        # Parsing failed
+        self.logger.warning(f"Poll JSON parsing failed. Raw: {raw_response[:100]}")
+        return None
 
     async def generate_message(self, category: str = "random") -> dict:
         """
@@ -215,121 +388,127 @@ class BotMediatedDailyMessageGenerator:
         recent_messages = self._get_recent_messages()
         
         # Define prompts for different categories with SCI-appropriate content
-        # Most categories produce standalone tips/facts (no questions) to give
-        # value without requiring engagement. Only "community" (poll) and
-        # "random" (discussion) ask anything of the reader.
+        # CRITICAL: Every prompt MUST require an explicit SCI/disability connection.
+        # Generic wellness/motivation advice is useless to this community.
         category_prompts = {
-            "fact": """Share one interesting, well-established SCI-related fact. Focus on topics like: spinal cord anatomy basics, injury level statistics, adaptive equipment history, accessibility milestones, or SCI community achievements. IMPORTANT: Only use medically accurate, well-established facts. Do NOT mention regeneration, cure research, or experimental treatments. Do NOT ask the reader to share anything or respond. Just state the fact.""",
+            "fact": """Share one interesting, well-established fact that is SPECIFICALLY about spinal cord injury or the SCI community. Examples of good topics: how different injury levels (C4 vs T10) affect function, the history of wheelchair basketball starting in VA hospitals in 1946, how autonomic dysreflexia works, the difference between complete and incomplete injuries, or accessibility legislation milestones. IMPORTANT: Only use medically accurate, well-established facts. Do NOT mention regeneration, cure research, or experimental treatments. Do NOT ask the reader to share anything. Just state the fact. Keep it under 2 sentences.""",
             
-            "tip": """Write one specific, actionable practical tip for SCI daily living. Focus on topics like: pressure sore prevention, transfer techniques, wheelchair maintenance, bathroom accessibility, cooking adaptations, exercise routines, or pain management. State the tip directly — do NOT ask a question or ask the reader to share anything.""",
+            "tip": """Write one specific, actionable practical tip that addresses a challenge UNIQUE to living with a spinal cord injury. The tip MUST involve something specific to SCI — not generic advice anyone could use. Good examples: how to do a proper pressure relief in a wheelchair, tips for managing neurogenic bowel routines, how to check skin in hard-to-see areas, catheter care tips, how to handle temperature regulation issues below injury level, or tricks for transfers. Do NOT give generic health advice like "drink water" or "eat healthy." State the tip directly — do NOT ask a question. Keep it under 2 sentences.""",
             
-            "motivation": """Write a short motivational insight or encouraging thought for the SCI community. Focus on resilience, perspective, small wins, or practical encouragement. Write it as a direct statement — do NOT ask a question or ask the reader to share anything.""",
+            "motivation": """Write a short motivational thought that resonates specifically with the SCI community. It MUST reference a real aspect of life with SCI — adapting to a new normal, mastering a new skill post-injury, navigating accessibility barriers, the strength it takes to advocate for yourself, or finding independence in new ways. Do NOT write generic motivation like "believe in yourself" or "every day is a new opportunity." Write it as a direct statement — do NOT ask a question. Keep it under 2 sentences.""",
             
-            "tech": """Recommend one specific assistive technology tool, app, device, or accessibility feature. Name the actual product/app and briefly say what it does and why it's useful. Focus on: smartphone apps, smart home devices, wheelchair accessories, communication aids, driving adaptations, or computer accessibility tools. Do NOT ask a question.""",
+            "tech": """Recommend one specific assistive technology tool, app, device, or accessibility feature that is particularly useful for people with spinal cord injuries. Name the actual product/app and briefly explain what it does and WHY it matters for someone with SCI specifically (e.g., limited hand function, wheelchair use, voice control needs). Good examples: switch-adapted gaming controllers, Tecla-e for smart home control with limited mobility, mouth-stick alternatives, power wheelchair programming apps, or pressure-mapping cushion systems. Do NOT recommend generic tech like "use a fitness tracker." Keep it under 2 sentences.""",
             
-            "community": """Create a poll question for the SCI community with 2-4 answer options. The question should be about SCI daily living, preferences, or experiences — something people can answer with a quick click. Examples: "What's your biggest barrier to travel?" with options like "Accessibility info", "Cost", "Energy/fatigue", "Finding help". Respond ONLY with valid JSON in this exact format: {"question": "your question here", "options": ["Option 1", "Option 2", "Option 3"]}.""",
+            "community": """Create a poll question for the SCI community with 2-4 answer options. The question MUST be about a specific aspect of living with SCI — not a generic preference question. Good examples: "What's your biggest wheelchair maintenance headache?" with options like "Flat tires", "Caster issues", "Cushion wear", "Frame adjustments". Or: "How do you handle temperature regulation below your level?" with options like "Layering clothes", "Cooling vests", "Just deal with it", "Avoiding heat". Respond ONLY with valid JSON: {"question": "your question here", "options": ["Option 1", "Option 2", "Option 3"]}.""",
             
-            "wellness": """Write one specific wellness or self-care tip for someone with SCI. Focus on: mental health, sleep, nutrition, stress management, self-care routines, or mindfulness. State the tip directly — do NOT ask a question or ask the reader to share anything.""",
+            "wellness": """Write one specific wellness or self-care tip that addresses a challenge UNIQUE to people with spinal cord injuries. The tip MUST be about an SCI-specific wellness concern — NOT generic advice like "get good sleep" or "practice mindfulness." Good SCI-specific topics: managing neuropathic pain without over-relying on meds, dealing with shoulder overuse from wheeling, mental health strategies for adjusting to life post-injury, preventing UTIs with proper hydration and catheter care, skin checks and pressure injury prevention, managing spasticity, or coping with fatigue from the extra energy SCI daily living requires. Keep it under 2 sentences.""",
             
-            "random": """Create a discussion question on a varied SCI-related topic. Choose from: travel experiences, workplace accommodations, hobbies/recreation, family dynamics, dating/relationships, home modifications, weather challenges, accessibility experiences, or daily problem-solving. Ask one genuine question that invites people to share knowledge and experiences."""
+            "random": """Create a discussion question about a specific aspect of daily life with SCI. The question MUST be about something that is unique or notably different for people with spinal cord injuries. Good examples: "What's your go-to hack for getting dressed faster?", "How did you figure out your vehicle modification setup?", "What's the most overrated piece of adaptive equipment?", or "What do you wish you'd known in your first year post-injury?" Ask one genuine question that invites people to share SCI-specific knowledge and experiences. Keep it under 2 sentences."""
         }
         
         prompt = category_prompts.get(category, category_prompts["random"])
         
         # Add recent messages context to avoid repetition
         if recent_messages:
-            recent_context = "Recent daily messages posted (avoid similar topics):\\n" + "\\n".join([f"- {msg}" for msg in recent_messages])
-            prompt = f"{prompt}\\n\\n{recent_context}"
+            recent_context = "Previously posted (avoid similar topics):\n" + "\n".join([f"- {msg}" for msg in recent_messages])
+            prompt = f"{prompt}\n\n{recent_context}"
         
         # Use the same system prompt as the main bot for consistent tone
-        # Get the main system prompt from config
         main_system_prompt = self.config.llm.get_system_prompt()
         
-        # Create a specialized daily message prompt that builds on the main prompt
         daily_system_prompt = f"""{main_system_prompt}
 
 SPECIAL TASK: You are generating short daily messages for the SCI community Discord channel. Most messages should give value directly (tips, facts, recommendations) rather than asking questions.
 
 CRITICAL OUTPUT RULES:
-- Respond with ONLY the message text itself, nothing else
+- Respond with ONLY the message text itself — 1-2 sentences max, under 280 characters
 - Do NOT include any instructions, meta-commentary, character counts, or explanations
 - Do NOT prefix your response with labels like "Here's a tip:" or "Fact:"
 - Do NOT echo or repeat any part of these instructions in your output
-- Maximum length: 150 characters. Simply write a short message.
+- Do NOT include phrases like "keep it under X characters" or "here is a tip"
+
+CRITICAL SCI-RELEVANCE RULE:
+- Every message MUST be specifically about spinal cord injury, wheelchair use, or disability-specific challenges
+- NEVER post generic health, wellness, or motivational advice that could apply to anyone
+- If the advice would make sense on a general health blog, it is NOT specific enough
+- Bad example: "Maintain a consistent sleep schedule" (generic, not SCI-specific)
+- Good example: "If spasticity or neuropathic pain disrupts your sleep, talk to your doc about timing your meds so they peak at bedtime" (SCI-specific)
 
 Guidelines for daily messages:
 - Use conversational, natural language (not clinical or business-speak)
-- Avoid corporate jargon like "mindset shifts", "resilience strategies", "growth mindset", "best practices"
 - Write as a caring facilitator, not as someone with personal SCI experience
-- Do not use hashtags
+- Do not use hashtags or emojis
 - Create FRESH, UNIQUE topics that avoid repeating recent themes
 - When the prompt says "do NOT ask a question", write a direct statement only
 - When asked for a poll, respond ONLY with the requested JSON format"""
 
         messages = [
-            ChatMessage(
-                role=MessageRole.SYSTEM,
-                content=daily_system_prompt
-            ),
-            ChatMessage(
-                role=MessageRole.USER,
-                content=prompt
-            )
+            ChatMessage(role=MessageRole.SYSTEM, content=daily_system_prompt),
+            ChatMessage(role=MessageRole.USER, content=prompt),
         ]
         
         request = ChatRequest(
             messages=messages,
             model=self.config.llm.model_name,
-            max_tokens=200 if category == "community" else 100,
-            temperature=0.3
+            max_tokens=200 if category == "community" else 80,
+            temperature=0.7
         )
         
-        is_poll = category == "community"
-        
-        try:
-            self.logger.info(f"Generating {category} message (format: {'poll' if is_poll else 'text'})")
-            response = await self.llm_client.generate_chat_completion(request.messages, 
-                                                                    max_tokens=request.max_tokens,
-                                                                    temperature=request.temperature)
-            
-            if response.choices and len(response.choices) > 0:
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.logger.info(f"Generating {category} message (attempt {attempt})")
+                response = await self.llm_client.generate_chat_completion(
+                    request.messages, max_tokens=request.max_tokens, temperature=request.temperature
+                )
+                
+                if not (response.choices and len(response.choices) > 0):
+                    raise RuntimeError("No response choices returned from LLM")
+                
                 message = response.content.strip()
                 
                 # Handle poll format
-                if is_poll:
-                    return self._parse_poll_response(message, category)
+                if category == "community":
+                    poll_result = self._parse_poll_response(message, category)
+                    if poll_result:
+                        # Check if this poll has been posted before
+                        if self._is_repetitive(poll_result["question"], recent_messages):
+                            self.logger.warning(f"Attempt {attempt}: Poll is repetitive, retrying")
+                            request.temperature = min(1.0, request.temperature + 0.15)
+                            continue
+                        self._save_message_to_history(poll_result["question"], category)
+                        self.logger.info(f"Generated poll: {poll_result['question']}")
+                        return poll_result
+                    # Poll parsing failed
+                    self.logger.warning(f"Attempt {attempt}: Poll parsing failed, retrying")
+                    request.temperature = min(1.0, request.temperature + 0.15)
+                    continue
                 
-                # Post-process to remove any hashtags that might have been generated
+                # Post-process text messages
                 import re
                 message = re.sub(r'#\w+', '', message)  # Remove hashtags
+                message = re.sub(r'\s+', ' ', message)  # Clean whitespace
                 
-                # Strip leaked prompt instructions (e.g. "Keep it under 150 characters:")
-                # The LLM sometimes echoes instructions back in its response.
-                # Pattern: LLM writes a long draft, then "Keep it under N characters: <short version>"
-                # In that case, extract just the short version after the instruction.
-                leaked_instruction = re.search(
-                    r'(?i)keep\s+it\s+under\s+\d+\s+characters?\s*[:.]?\s*["\']?(.{10,}?)["\']?\s*$',
-                    message
-                )
-                if leaked_instruction:
-                    message = leaked_instruction.group(1).strip()
-                else:
-                    # Also catch if instruction appears without a following message
-                    message = re.sub(
-                        r'(?i)\s*keep\s+it\s+under\s+\d+\s+characters?\s*[:.]?\s*',
-                        '',
-                        message
-                    )
-                # Remove common instruction prefixes the LLM may echo
+                # Strip leaked prompt instructions / meta-commentary
                 message = re.sub(
-                    r'(?i)^(?:here(?:\'s| is) (?:a |an |one |the )?(?:tip|fact|thought|insight|recommendation|question)\s*[:.]?\s*)',
-                    '',
-                    message
+                    r'(?i)\s*keep\s+it\s+under\s+\d+\s+(?:characters?|words?)\s*[:.]?\s*',
+                    '', message
+                )
+                message = re.sub(
+                    r'(?i)^(?:here(?:\'s| is) (?:a |an |one |the )?(?:tip|fact|thought|insight|recommendation|question|message)\s*[:.]?\s*)',
+                    '', message
+                )
+                message = re.sub(
+                    r'(?i)^(?:sure[!,.]?\s*|okay[!,.]?\s*|absolutely[!,.]?\s*)',
+                    '', message
+                )
+                # Remove character/word count notes the LLM sometimes appends
+                message = re.sub(
+                    r'(?i)\s*\(?\d+\s*(?:characters?|words?|chars?)\)?\s*$',
+                    '', message
                 )
                 
-                message = re.sub(r'\s+', ' ', message)  # Clean up extra whitespace
-                
-                # Remove surrounding quotes if present
+                # Remove surrounding quotes
                 if message.startswith('"') and message.endswith('"'):
                     message = message[1:-1]
                 elif message.startswith("'") and message.endswith("'"):
@@ -337,21 +516,39 @@ Guidelines for daily messages:
                 
                 message = message.strip()
                 
-                # Save to history to avoid future repetition
-                self._save_message_to_history(message, category)
+                # Truncate to last complete sentence if over 280 chars
+                if len(message) > 280:
+                    # Find the last sentence boundary within 280 chars
+                    truncated = message[:280]
+                    last_period = truncated.rfind('.')
+                    last_question = truncated.rfind('?')
+                    last_exclaim = truncated.rfind('!')
+                    cut_point = max(last_period, last_question, last_exclaim)
+                    if cut_point > 100:  # Only truncate if we keep a meaningful amount
+                        message = message[:cut_point + 1]
                 
+                # Check text messages for repetition too
+                if self._is_repetitive(message, recent_messages):
+                    self.logger.warning(f"Attempt {attempt}: Message is repetitive, retrying")
+                    request.temperature = min(1.0, request.temperature + 0.15)
+                    continue
+                
+                # Save to history
+                self._save_message_to_history(message, category)
                 self.logger.info(f"Generated message: {message[:50]}...")
+                
                 return {
                     "format": "text",
                     "content": message,
                     "category": category,
                 }
-            else:
-                raise RuntimeError("No response choices returned from LLM")
-                
-        except Exception as e:
-            self.logger.error(f"Failed to generate message: {e}")
-            raise
+                    
+            except Exception as e:
+                self.logger.error(f"Attempt {attempt} failed: {e}")
+                if attempt == max_attempts:
+                    raise
+        
+        raise RuntimeError(f"Failed to generate non-repetitive {category} message after {max_attempts} attempts")
 
     async def post_through_bot(self, message_data: dict, test_mode: bool = False) -> bool:
         """
