@@ -1,0 +1,8 @@
+FROM /usr/share/ollama/.ollama/models/blobs/sha256-f44aa1c782351a6e044da24a1f4490c53acc653386bdcfdc51cd5e5f7ec4d6e5
+TEMPLATE "{{- range .Messages }}<|im_start|>{{ .Role }}
+{{ .Content }}<|im_end|>
+{{ end }}<|im_start|>assistant
+"
+PARAMETER stop <|im_start|>
+PARAMETER stop <|im_end|>
+PARAMETER num_ctx 4096

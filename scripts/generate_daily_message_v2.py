@@ -113,8 +113,9 @@ class BotMediatedDailyMessageGenerator:
     def _get_recent_messages(self) -> List[str]:
         """Get recent daily messages to avoid repetition.
         
-        Returns ALL messages from the history file (up to 30 entries) to
-        give the LLM the widest possible view of what's already been posted.
+        Returns the last 15 messages for inclusion in the prompt (to avoid
+        overwhelming the context window), but returns ALL messages for
+        dedup similarity checking via _is_repetitive().
         """
         history_file = Path(__file__).parent / "daily_message_history.json"
         
@@ -125,7 +126,23 @@ class BotMediatedDailyMessageGenerator:
             with open(history_file, 'r') as f:
                 history = json.load(f)
             
-            # Return all messages in history (file already capped at 30 entries)
+            # Return last 15 messages for the prompt context
+            # (full history is still used by _is_repetitive for dedup)
+            all_messages = [entry['message'] for entry in history if entry.get('message')]
+            return all_messages[-15:]
+        except (json.JSONDecodeError, KeyError):
+            return []
+
+    def _get_all_messages_for_dedup(self) -> List[str]:
+        """Get ALL messages from history for dedup similarity checking."""
+        history_file = Path(__file__).parent / "daily_message_history.json"
+        
+        if not history_file.exists():
+            return []
+        
+        try:
+            with open(history_file, 'r') as f:
+                history = json.load(f)
             return [entry['message'] for entry in history if entry.get('message')]
         except (json.JSONDecodeError, KeyError):
             return []
@@ -164,9 +181,9 @@ class BotMediatedDailyMessageGenerator:
                 "accessible bathroom modifications",
                 "adaptive cooking tools and techniques for disability",
                 "exercise and fitness for wheelchair users",
-                "autonomic dysreflexia management spinal cord injury",
-                "bladder management spinal cord injury",
                 "adaptive driving controls for disability",
+                "shoulder care manual wheelchair users",
+                "temperature regulation spinal cord injury",
             ],
             "motivation": [
                 "disability rights movement achievements",
@@ -318,8 +335,8 @@ class BotMediatedDailyMessageGenerator:
             'message': message
         })
         
-        # Keep only last 60 entries
-        history = history[-60:]
+        # Keep only last 30 entries
+        history = history[-30:]
         
         # Save updated history
         try:
@@ -393,7 +410,7 @@ class BotMediatedDailyMessageGenerator:
         category_prompts = {
             "fact": """Share one interesting, well-established fact that is SPECIFICALLY about spinal cord injury or the SCI community. Examples of good topics: how different injury levels (C4 vs T10) affect function, the history of wheelchair basketball starting in VA hospitals in 1946, how autonomic dysreflexia works, the difference between complete and incomplete injuries, or accessibility legislation milestones. IMPORTANT: Only use medically accurate, well-established facts. Do NOT mention regeneration, cure research, or experimental treatments. Do NOT ask the reader to share anything. Just state the fact. Keep it under 2 sentences.""",
             
-            "tip": """Write one specific, actionable practical tip that addresses a challenge UNIQUE to living with a spinal cord injury. The tip MUST involve something specific to SCI — not generic advice anyone could use. Good examples: how to do a proper pressure relief in a wheelchair, tips for managing neurogenic bowel routines, how to check skin in hard-to-see areas, catheter care tips, how to handle temperature regulation issues below injury level, or tricks for transfers. Do NOT give generic health advice like "drink water" or "eat healthy." State the tip directly — do NOT ask a question. Keep it under 2 sentences.""",
+            "tip": """Write one specific, actionable practical tip that addresses a challenge UNIQUE to living with a spinal cord injury. The tip MUST involve something specific to SCI — not generic advice anyone could use. Good examples: how to do a proper pressure relief in a wheelchair, how to check skin in hard-to-see areas, how to handle temperature regulation issues below injury level, tricks for wheelchair transfers, or shoulder care for manual wheelchair users. Do NOT give generic health advice like "drink water" or "eat healthy." Do NOT provide step-by-step instructions for medical procedures (catheterization, bowel programs, wound care, medication administration) — always direct those topics to healthcare professionals. State the tip directly — do NOT ask a question. Keep it under 2 sentences.""",
             
             "motivation": """Write a short motivational thought that resonates specifically with the SCI community. It MUST reference a real aspect of life with SCI — adapting to a new normal, mastering a new skill post-injury, navigating accessibility barriers, the strength it takes to advocate for yourself, or finding independence in new ways. Do NOT write generic motivation like "believe in yourself" or "every day is a new opportunity." Write it as a direct statement — do NOT ask a question. Keep it under 2 sentences.""",
             
@@ -401,7 +418,7 @@ class BotMediatedDailyMessageGenerator:
             
             "community": """Create a poll question for the SCI community with 2-4 answer options. The question MUST be about a specific aspect of living with SCI — not a generic preference question. Good examples: "What's your biggest wheelchair maintenance headache?" with options like "Flat tires", "Caster issues", "Cushion wear", "Frame adjustments". Or: "How do you handle temperature regulation below your level?" with options like "Layering clothes", "Cooling vests", "Just deal with it", "Avoiding heat". Respond ONLY with valid JSON: {"question": "your question here", "options": ["Option 1", "Option 2", "Option 3"]}.""",
             
-            "wellness": """Write one specific wellness or self-care tip that addresses a challenge UNIQUE to people with spinal cord injuries. The tip MUST be about an SCI-specific wellness concern — NOT generic advice like "get good sleep" or "practice mindfulness." Good SCI-specific topics: managing neuropathic pain without over-relying on meds, dealing with shoulder overuse from wheeling, mental health strategies for adjusting to life post-injury, preventing UTIs with proper hydration and catheter care, skin checks and pressure injury prevention, managing spasticity, or coping with fatigue from the extra energy SCI daily living requires. Keep it under 2 sentences.""",
+            "wellness": """Write one specific wellness or self-care tip that addresses a challenge UNIQUE to people with spinal cord injuries. The tip MUST be about an SCI-specific wellness concern — NOT generic advice like "get good sleep" or "practice mindfulness." Good SCI-specific topics: managing neuropathic pain without over-relying on meds, dealing with shoulder overuse from wheeling, mental health strategies for adjusting to life post-injury, skin checks and pressure injury prevention, managing spasticity, or coping with fatigue from the extra energy SCI daily living requires. Do NOT provide step-by-step instructions for medical procedures (catheterization, bowel programs, wound care, medication administration) — always direct those topics to healthcare professionals. Keep it under 2 sentences.""",
             
             "random": """Create a discussion question about a specific aspect of daily life with SCI. The question MUST be about something that is unique or notably different for people with spinal cord injuries. Good examples: "What's your go-to hack for getting dressed faster?", "How did you figure out your vehicle modification setup?", "What's the most overrated piece of adaptive equipment?", or "What do you wish you'd known in your first year post-injury?" Ask one genuine question that invites people to share SCI-specific knowledge and experiences. Keep it under 2 sentences."""
         }
@@ -433,6 +450,14 @@ CRITICAL SCI-RELEVANCE RULE:
 - If the advice would make sense on a general health blog, it is NOT specific enough
 - Bad example: "Maintain a consistent sleep schedule" (generic, not SCI-specific)
 - Good example: "If spasticity or neuropathic pain disrupts your sleep, talk to your doc about timing your meds so they peak at bedtime" (SCI-specific)
+
+CRITICAL MEDICAL PROCEDURE SAFETY:
+- NEVER provide step-by-step instructions for ANY medical procedure
+- This includes catheterization, bowel programs, wound care, medication dosing, injection techniques, and respiratory procedures
+- You may mention that a procedure exists but NEVER describe the technique, steps, or method
+- ALWAYS direct medical procedure questions to healthcare professionals
+- Bad example: "To self-catheterize, insert the catheter into the urethra and use gentle pulling motions..."
+- Good example: "Your rehab nurse or urologist can walk you through self-catheterization techniques that work for your specific situation"
 
 Guidelines for daily messages:
 - Use conversational, natural language (not clinical or business-speak)
@@ -471,8 +496,9 @@ Guidelines for daily messages:
                 if category == "community":
                     poll_result = self._parse_poll_response(message, category)
                     if poll_result:
-                        # Check if this poll has been posted before
-                        if self._is_repetitive(poll_result["question"], recent_messages):
+                        # Check if this poll has been posted before (use full history)
+                        all_messages = self._get_all_messages_for_dedup()
+                        if self._is_repetitive(poll_result["question"], all_messages):
                             self.logger.warning(f"Attempt {attempt}: Poll is repetitive, retrying")
                             request.temperature = min(1.0, request.temperature + 0.15)
                             continue
@@ -486,6 +512,10 @@ Guidelines for daily messages:
                 
                 # Post-process text messages
                 import re
+                
+                # Strip leading bullet/dash (model mimics history format)
+                message = re.sub(r'^[-\u2022\*]\s*', '', message)
+                
                 message = re.sub(r'#\w+', '', message)  # Remove hashtags
                 message = re.sub(r'\s+', ' ', message)  # Clean whitespace
                 
@@ -527,8 +557,29 @@ Guidelines for daily messages:
                     if cut_point > 100:  # Only truncate if we keep a meaningful amount
                         message = message[:cut_point + 1]
                 
-                # Check text messages for repetition too
-                if self._is_repetitive(message, recent_messages):
+                # Reject messages that are clearly prompt leakage or garbage
+                garbage_patterns = [
+                    r'(?i)^write\s+(an?|the)\s+',  # "Write an AI...", "Write a chatbot..."
+                    r'(?i)\bchatbot\b',
+                    r'(?i)\bAI\s+assistant\b',
+                    r'(?i)^create\s+(an?|the)\s+',
+                    r'(?i)^design\s+(an?|the)\s+',
+                    r'(?i)^build\s+(an?|the)\s+',
+                    r'(?i)^develop\s+(an?|the)\s+',
+                    r'(?i)\blanguage\s+model\b',
+                    r'(?i)\bneural\s+network\b',
+                    r'(?i)^I\s+can\s+help\s+you\s+with',  # Model confused about its role
+                    r'(?i)^(understood|certainly|of course)[!.]?\s+I\s+will',
+                ]
+                is_garbage = any(re.search(p, message) for p in garbage_patterns)
+                if is_garbage:
+                    self.logger.warning(f"Attempt {attempt}: Message looks like prompt leakage, retrying: {message[:80]}")
+                    request.temperature = min(1.0, request.temperature + 0.15)
+                    continue
+                
+                # Check text messages for repetition (use full history for dedup)
+                all_messages = self._get_all_messages_for_dedup()
+                if self._is_repetitive(message, all_messages):
                     self.logger.warning(f"Attempt {attempt}: Message is repetitive, retrying")
                     request.temperature = min(1.0, request.temperature + 0.15)
                     continue
